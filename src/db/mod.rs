@@ -18,7 +18,7 @@ pub type SharedDb = Arc<Mutex<Db>>;
 
 pub fn open_db() -> SharedDb {
 
-    let wal_path =  "wal.log" ;
+    let wal_path =  "wal.log";
 
     let mut memtable = MemTable::new();
 
