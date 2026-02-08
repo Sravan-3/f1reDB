@@ -1,9 +1,11 @@
 // TCP server
 use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
-use crate::protocol;
+use crate::protocol::{self, Command};
+use crate::db::SharedDb;
+use std::sync::{Arc};
 
-pub fn start(address: &str){
+pub fn start(address: &str, db: SharedDb){
 
     let listener  = TcpListener::bind(address).expect("Failed to bind");
 
@@ -12,17 +14,19 @@ pub fn start(address: &str){
     for stream in listener.incoming(){
         match stream {
             Ok(stream) => {
-                handle_client(stream)
+                let db = Arc::clone(&db);
+                std::thread::spawn(move || {
+                    handle_client(stream, db);
+                });
             }
             Err(e) => {
                 eprintln!("Connection failed: {}", e);
             }
         }
     }
-
 }
 
-pub fn handle_client(mut stream: TcpStream){
+pub fn handle_client(mut stream: TcpStream, db: SharedDb){
 
     let mut buffer =[0; 1024];
     let mut pending= Vec::new();
@@ -44,9 +48,30 @@ pub fn handle_client(mut stream: TcpStream){
             let line = String::from_utf8_lossy(&line);
 
             match protocol::parse_line(&line) {
-                Ok(cmd) => {
-                    println!("Parsed: {:?}", cmd);
+                
+                Ok(Command::Set { key, value }) => {
+
+                    let mut db = db.lock().unwrap();
+
+                    db.wal.log_set(&key, &value).unwrap();
+                    db.memtable.set(key, value);
                     stream.write_all(b"OK\n").unwrap();
+                }
+
+                Ok(Command::Get { key }) => {
+
+                    let db = db.lock().unwrap();
+
+                    match db.memtable.get(&key) {
+                        Some(value) => {
+                            let resp = format!("{}\n", value);
+                            stream.write_all(resp.as_bytes()).unwrap();
+                        }
+                        None => {
+                            stream.write_all(b"NOT_FOUND\n").unwrap();
+                        }
+                    }
+
                 }
 
                 Err(e) => {
