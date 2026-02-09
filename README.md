@@ -1,6 +1,6 @@
-# 🔥 fireDB
+# 🔥 f1reDB
 
-**fireDB** is a simple key-value database written in Rust, inspired by LSM-tree based systems like RocksDB.
+**f1reDB** is a simple key-value database written in Rust, inspired by LSM-tree based systems like RocksDB.
 
 This project is built step by step to learn systems programming, networking, and database internals in Rust.
 
@@ -184,7 +184,7 @@ This project is built as a learning exercise to understand:
 
 ## ⚠️ Disclaimer
 
-fireDB is NOT production-ready.
+f1reDB is NOT production-ready.
 
 It is an educational project focused on learning system design and Rust internals.
 
