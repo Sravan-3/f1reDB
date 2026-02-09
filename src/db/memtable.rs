@@ -20,5 +20,18 @@ impl MemTable {
     pub fn get(&self, key: &str) -> Option<String>{
         return self.map.get(key).cloned();
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> { 
+        self.map.iter()
+    }
+
+    pub fn len(&self) -> usize{
+        self.map.len()
+    }
+
+    pub fn clear(&mut self){
+        self.map.clear();
+    }
+
 }
 

@@ -4,14 +4,15 @@ pub mod wal;
 pub mod sstable;
 pub mod bloom;  
 
-use std::sync::{Arc, Mutex};
+use std::{path::PathBuf, sync::{Arc, Mutex}};
 use memtable::MemTable;
 use wal::Wal;
 
 
 pub struct Db{
     pub memtable: MemTable,
-    pub wal: Wal
+    pub wal: Wal,
+    pub sstable: Vec<PathBuf>
 }
 
 pub type SharedDb = Arc<Mutex<Db>>;
@@ -26,7 +27,11 @@ pub fn open_db() -> SharedDb {
 
     let wal = Wal::open(wal_path).expect("Failed to open wal");
 
-    Arc::new(Mutex::new(Db{memtable, wal}))
+    Arc::new(Mutex::new(Db{
+            memtable,
+            wal, 
+            sstable: Vec::new(),
+        }))
 }
 
 

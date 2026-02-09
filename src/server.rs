@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use crate::protocol::{self, Command};
 use crate::db::SharedDb;
 use std::sync::{Arc};
+use crate::db::sstable;
 
 pub fn start(address: &str, db: SharedDb){
 
@@ -55,6 +56,15 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
 
                     db.wal.log_set(&key, &value).unwrap();
                     db.memtable.set(key, value);
+
+                    const MEMTABLE_LIMIT: usize = 4;
+
+                    if db.memtable.len() >= MEMTABLE_LIMIT {
+                        let path = sstable::flush(&db.memtable).unwrap();
+                        db.sstable.push(path);
+                        db.memtable.clear();
+                    }
+
                     stream.write_all(b"OK\n").unwrap();
                 }
 
@@ -62,16 +72,27 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
 
                     let db = db.lock().unwrap();
 
-                    match db.memtable.get(&key) {
-                        Some(value) => {
-                            let resp = format!("{}\n", value);
-                            stream.write_all(resp.as_bytes()).unwrap();
-                        }
-                        None => {
-                            stream.write_all(b"NOT_FOUND\n").unwrap();
-                        }
+                    let mut found = false;
+
+                    if let Some(value) = db.memtable.get(&key) {
+                        let resp = format!("VALUE {}\n", value);
+                        stream.write_all(resp.as_bytes()).unwrap();
+                        continue;
                     }
 
+                    for path in db.sstable.iter().rev() {
+
+                        if let Some(value) = sstable::get(path, &key) {
+                            let resp = format!("VALUE {}\n", value);
+                            stream.write_all(resp.as_bytes()).unwrap();
+                            found = true;
+                            break;                            
+                        }
+                    }
+                
+                    if !found {
+                        stream.write_all(b"NOT_FOUND\n").unwrap();
+                    }
                 }
 
                 Err(e) => {
@@ -81,8 +102,6 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
             }
         }
     }
-
-
 }
 
 
