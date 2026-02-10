@@ -80,9 +80,13 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
                         continue;
                     }
 
-                    for path in db.sstable.iter().rev() {
+                    for meta in db.sstable.iter().rev() {
 
-                        if let Some(value) = sstable::get(path, &key) {
+                        if !meta.bloom.might_contain(&key) {
+                            continue;
+                        }
+                        
+                        if let Some(value) = sstable::get(&meta.path, &key) {
                             let resp = format!("VALUE {}\n", value);
                             stream.write_all(resp.as_bytes()).unwrap();
                             found = true;

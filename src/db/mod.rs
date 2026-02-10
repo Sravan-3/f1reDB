@@ -4,15 +4,16 @@ pub mod wal;
 pub mod sstable;
 pub mod bloom;  
 
-use std::{path::PathBuf, sync::{Arc, Mutex}};
+use std::{sync::{Arc, Mutex}};
 use memtable::MemTable;
 use wal::Wal;
+use crate::db::sstable::SSTableMeta;
 
 
 pub struct Db{
     pub memtable: MemTable,
     pub wal: Wal,
-    pub sstable: Vec<PathBuf>
+    pub sstable: Vec<SSTableMeta>
 }
 
 pub type SharedDb = Arc<Mutex<Db>>;
