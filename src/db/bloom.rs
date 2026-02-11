@@ -1,5 +1,8 @@
 use std::collections::hash_map::DefaultHasher;
+use std::fs::File;
 use std::hash::{Hash, Hasher};
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 pub struct BloomFilter{
     bits:Vec<bool>,
@@ -44,4 +47,23 @@ impl BloomFilter {
 
         true
     }
+
+     pub fn build_from_sstable(path: &Path) -> std::io::Result<Self> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        
+        let mut bloom = BloomFilter::new(1024, 3);
+
+        for line in reader.lines() {
+            let line = line?;
+            let mut parts = line.split_whitespace();
+
+            if let Some(key) = parts.next() {
+                bloom.insert(&key);
+            }
+        }
+
+        Ok(bloom)
+    }
+
 }

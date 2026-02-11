@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::db::bloom::BloomFilter;
 use crate::db::memtable::MemTable;
@@ -11,19 +10,13 @@ pub struct SSTableMeta{
     pub bloom: BloomFilter,
 }
 
-fn next_sstable_path() -> PathBuf{
-
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-
-    PathBuf::from(format!("sstable-{}.db", ts))
+pub fn path_for_id(id: u64) -> PathBuf {
+    PathBuf::from(format!("sstable-{}.db", id))
 }
 
-pub fn flush(memtable: &MemTable) -> std::io::Result<SSTableMeta>{
+pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMeta>{
 
-    let path = next_sstable_path();
+    let path = path_for_id(sstable_id);
     let file = File::create(&path)?;
     let mut writer = BufWriter::new(file);
 

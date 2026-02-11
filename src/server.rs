@@ -5,6 +5,7 @@ use crate::protocol::{self, Command};
 use crate::db::SharedDb;
 use std::sync::{Arc};
 use crate::db::sstable;
+use crate::db::compaction;
 
 pub fn start(address: &str, db: SharedDb){
 
@@ -60,9 +61,30 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
                     const MEMTABLE_LIMIT: usize = 4;
 
                     if db.memtable.len() >= MEMTABLE_LIMIT {
-                        let path = sstable::flush(&db.memtable).unwrap();
-                        db.sstable.push(path);
+                        
+                        let id = db.manifest.allocate_sstable_id();
+                        let meta = sstable::flush(&db.memtable, id).unwrap();
+
+                        db.manifest.add_sstable(meta.path.clone());
+                        db.manifest.save("MANIFEST").unwrap();
+
+                        db.sstables.push(meta);
                         db.memtable.clear();
+                    }
+
+                    if db.sstables.len() >= 2 {
+                        
+                        let id = db.manifest.allocate_sstable_id();
+                        let new_table = compaction::compact(
+                            db.sstables.drain(..).collect(),
+                            id,
+                        )
+                        .unwrap();
+
+                        db.manifest.add_sstable(new_table.path.clone());
+                        db.manifest.save("MANIFEST").unwrap();
+
+                        db.sstables.push(new_table);
                     }
 
                     stream.write_all(b"OK\n").unwrap();
@@ -80,7 +102,7 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
                         continue;
                     }
 
-                    for meta in db.sstable.iter().rev() {
+                    for meta in db.sstables.iter().rev() {
 
                         if !meta.bloom.might_contain(&key) {
                             continue;
