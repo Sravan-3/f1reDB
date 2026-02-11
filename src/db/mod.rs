@@ -46,7 +46,7 @@ pub fn open_db() -> SharedDb {
     Arc::new(Mutex::new(Db{
             memtable,
             wal, 
-            sstables: Vec::new(),
+            sstables,
             manifest
         }))
 }

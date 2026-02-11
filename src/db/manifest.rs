@@ -51,7 +51,7 @@ impl Manifest {
 
     }
 
-    pub fn save(&self, path: &str) -> std::io::Result<()>{
+    pub fn persist(&self, path: &str) -> std::io::Result<()>{
 
         let mut file = OpenOptions::new()
             .create(true)
@@ -78,5 +78,9 @@ impl Manifest {
 
     pub fn add_sstable(&mut self, path: PathBuf) {
         self.sstables.push(path);
+    }
+
+    pub fn remove_sstable(&mut self, path: &PathBuf) {
+        self.sstables.retain(|p| p != path);
     }
 }

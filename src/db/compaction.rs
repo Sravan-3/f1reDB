@@ -24,9 +24,7 @@ pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTab
 
             let key = parts.next().unwrap().to_string();
             let value = parts.next().unwrap().to_string();
-
-            println!("{} {}", key, value);
-
+            
             merged.entry(key).or_insert(value);
 
         }
@@ -34,7 +32,7 @@ pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTab
 
     let path = path_for_id(new_id);
     let file = File::create(&path)?;
-    println!("CREATED MERGE FILE: {:?}", path);
+
     let mut writer = BufWriter::new(file);
 
     let mut bloom = BloomFilter::new(1024, 3);

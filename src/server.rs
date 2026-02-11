@@ -1,6 +1,8 @@
 // TCP server
 use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
+use std::path::PathBuf;
+
 use crate::protocol::{self, Command};
 use crate::db::SharedDb;
 use std::sync::{Arc};
@@ -66,23 +68,30 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
                         let meta = sstable::flush(&db.memtable, id).unwrap();
 
                         db.manifest.add_sstable(meta.path.clone());
-                        db.manifest.save("MANIFEST").unwrap();
+                        db.manifest.persist("MANIFEST").unwrap();
 
                         db.sstables.push(meta);
                         db.memtable.clear();
                     }
 
                     if db.sstables.len() >= 2 {
-                        
+
+                        let old_tables: Vec<_> = db.sstables.drain(..).collect();
+                        let old_path: Vec<PathBuf> = old_tables.iter().map(|m| m.path.clone()).collect();
+
                         let id = db.manifest.allocate_sstable_id();
                         let new_table = compaction::compact(
-                            db.sstables.drain(..).collect(),
+                            old_tables,
                             id,
                         )
                         .unwrap();
 
+                        for path in &old_path{
+                            db.manifest.remove_sstable(path);
+                        }
+                        
                         db.manifest.add_sstable(new_table.path.clone());
-                        db.manifest.save("MANIFEST").unwrap();
+                        db.manifest.persist("MANIFEST").unwrap();
 
                         db.sstables.push(new_table);
                     }
