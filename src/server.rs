@@ -8,6 +8,7 @@ use crate::db::SharedDb;
 use std::sync::{Arc};
 use crate::db::sstable;
 use crate::db::compaction;
+use crate::db::static_vars;
 
 pub fn start(address: &str, db: SharedDb){
 
@@ -34,30 +35,8 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
 
     let mut buffer =[0; 1024];
     let mut pending= Vec::new();
-    static BANNER: &str = r#"
-█████╗ █████╗ █████╗ █████╗ █████╗ █████╗ █████╗ █████╗
-╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝
 
-   ███████╗  ██╗ ██████╗  ███████╗ ██████╗  ██████╗
-   ██╔════╝ ███║ ██╔══██╗ ██╔════╝ ██╔══██╗ ██╔══██╗
-   █████╗   ╚██║ ██████╔╝ █████╗   ██║  ██║ ██████╔╝
-   ██╔══╝    ██║ ██╔══██╗ ██╔══╝   ██║  ██║ ██╔══██╗
-   ██║       ██║ ██║  ██║ ███████╗ ██████╔╝ ██████╔╝
-   ╚═╝       ╚═╝ ╚═╝  ╚═╝ ╚══════╝ ╚═════╝  ╚═════╝
-
-█████╗ █████╗ █████╗ █████╗ █████╗ █████╗ █████╗ █████╗
-╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝ ╚════╝
-
---------------------------------------------------------
- F1REDB Database Engine
- Version      : 1.0
- Storage      : LSM Tree
- WAL           : Enabled
- Status        : Ready
---------------------------------------------------------
-"#;
-
-    stream.write_all(BANNER.as_bytes()).expect("Priniting banner failed");
+    stream.write_all(static_vars::BANNER.as_bytes()).expect("Priniting banner failed");
 
     loop{
 
@@ -79,11 +58,13 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
                 
                 Ok(Command::Set { key, value }) => {
 
-                    let mut db = db_arc.lock().unwrap();
+                    let mut db = db_arc.write().unwrap();
 
                     db.wal.log_set(&key, &value).unwrap();
                     db.memtable.set(key, value);
 
+                    stream.write_all(b"OK\n").unwrap();
+                    
                     const MEMTABLE_LIMIT: usize = 4;
 
                     if db.memtable.len() >= MEMTABLE_LIMIT {
@@ -102,7 +83,7 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
 
                         db.compaction_running = true;
 
-                        let old_tables: Vec<_> = db.sstables.drain(..).collect();
+                        let old_tables  = db.sstables.clone();
                         let old_path: Vec<PathBuf> = old_tables.iter().map(|m| m.path.clone()).collect();
 
                         let id = db.manifest.allocate_sstable_id();
@@ -119,35 +100,33 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
                             )
                             .unwrap();
 
-                            let mut db = db_clone.lock().unwrap();
+                            let mut db = db_clone.write().unwrap();
+
+                            db.sstables.clear();
+                            db.sstables.push(new_table.clone());
 
                             for path in &old_path{
                                 db.manifest.remove_sstable(path);
                             }
                             
                             db.manifest.add_sstable(new_table.path.clone());
-                            
                             db.manifest.persist("MANIFEST").unwrap();
 
                             for path in &old_path{
                                 let _ = std::fs::remove_file(path);
                             }
 
-                            db.sstables.push(new_table);
-                            
                             db.compaction_running = false;
                             
                         });
 
                         continue;
                     }
-
-                    stream.write_all(b"OK\n").unwrap();
                 }
 
                 Ok(Command::Get { key }) => {
 
-                    let db = db_arc.lock().unwrap();
+                    let db = db_arc.read().unwrap();
 
                     let mut found = false;
 

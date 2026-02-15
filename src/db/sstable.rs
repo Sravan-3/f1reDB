@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use crate::db::bloom::BloomFilter;
 use crate::db::memtable::MemTable;
 
+#[derive(Clone)]
 pub struct SSTableMeta{
     pub path: PathBuf,
     pub bloom: BloomFilter,

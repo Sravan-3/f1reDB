@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct BloomFilter{
     bits:Vec<bool>,
     k: usize,

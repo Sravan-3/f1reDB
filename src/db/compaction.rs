@@ -10,9 +10,7 @@ pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTab
     let mut merged = BTreeMap::new();
 
     for meta in sstables.iter().rev(){
-
-        println!("{:#?}", meta.path);
-
+        
         let file = File::open(&meta.path)?;
         let reader = BufReader::new(file);
 

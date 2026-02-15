@@ -5,8 +5,9 @@ pub mod sstable;
 pub mod bloom;
 pub mod compaction;
 pub mod manifest;
+pub mod static_vars;
 
-use std::{sync::{Arc, Mutex}};
+use std::{sync::{Arc, RwLock}};
 use memtable::MemTable;
 use wal::Wal;
 use crate::db::{bloom::BloomFilter, manifest::Manifest, sstable::SSTableMeta};
@@ -20,7 +21,7 @@ pub struct Db{
     pub compaction_running: bool,
 }
 
-pub type SharedDb = Arc<Mutex<Db>>;
+pub type SharedDb = Arc<RwLock<Db>>;
 
 pub fn open_db() -> SharedDb {
 
@@ -44,7 +45,7 @@ pub fn open_db() -> SharedDb {
         });
     }
 
-    Arc::new(Mutex::new(Db{
+    Arc::new(RwLock::new(Db{
             memtable,
             wal, 
             sstables,
