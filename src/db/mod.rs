@@ -17,6 +17,7 @@ pub struct Db{
     pub wal: Wal,
     pub sstables: Vec<SSTableMeta>,
     pub manifest: Manifest,
+    pub compaction_running: bool,
 }
 
 pub type SharedDb = Arc<Mutex<Db>>;
@@ -47,7 +48,8 @@ pub fn open_db() -> SharedDb {
             memtable,
             wal, 
             sstables,
-            manifest
+            manifest,
+            compaction_running: false
         }))
 }
 

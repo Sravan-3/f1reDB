@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs::{File, remove_file};
+use std::fs::{File};
 use std::io::{BufReader, BufRead, BufWriter, Write};
 
 use crate::db::sstable::{SSTableMeta, path_for_id};
@@ -43,10 +43,6 @@ pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTab
     }
 
     writer.flush()?;
-
-    for meta in sstables{
-        remove_file(meta.path)?;
-    }
 
     Ok(SSTableMeta { path, bloom })
 

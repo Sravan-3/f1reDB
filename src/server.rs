@@ -30,7 +30,7 @@ pub fn start(address: &str, db: SharedDb){
     }
 }
 
-pub fn handle_client(mut stream: TcpStream, db: SharedDb){
+pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
 
     let mut buffer =[0; 1024];
     let mut pending= Vec::new();
@@ -55,7 +55,7 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
                 
                 Ok(Command::Set { key, value }) => {
 
-                    let mut db = db.lock().unwrap();
+                    let mut db = db_arc.lock().unwrap();
 
                     db.wal.log_set(&key, &value).unwrap();
                     db.memtable.set(key, value);
@@ -74,26 +74,48 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
                         db.memtable.clear();
                     }
 
-                    if db.sstables.len() >= 2 {
+                    if db.sstables.len() >= 2 && !db.compaction_running {
+
+                        db.compaction_running = true;
 
                         let old_tables: Vec<_> = db.sstables.drain(..).collect();
                         let old_path: Vec<PathBuf> = old_tables.iter().map(|m| m.path.clone()).collect();
 
                         let id = db.manifest.allocate_sstable_id();
-                        let new_table = compaction::compact(
+
+                        let db_clone = Arc::clone(&db_arc);
+
+                        drop(db);
+
+                        std::thread::spawn(move ||{
+
+                            let new_table = compaction::compact(
                             old_tables,
                             id,
-                        )
-                        .unwrap();
+                            )
+                            .unwrap();
 
-                        for path in &old_path{
-                            db.manifest.remove_sstable(path);
-                        }
-                        
-                        db.manifest.add_sstable(new_table.path.clone());
-                        db.manifest.persist("MANIFEST").unwrap();
+                            let mut db = db_clone.lock().unwrap();
 
-                        db.sstables.push(new_table);
+                            for path in &old_path{
+                                db.manifest.remove_sstable(path);
+                            }
+                            
+                            db.manifest.add_sstable(new_table.path.clone());
+                            
+                            db.manifest.persist("MANIFEST").unwrap();
+
+                            for path in &old_path{
+                                let _ = std::fs::remove_file(path);
+                            }
+
+                            db.sstables.push(new_table);
+                            
+                            db.compaction_running = false;
+                            
+                        });
+
+                        continue;
                     }
 
                     stream.write_all(b"OK\n").unwrap();
@@ -101,7 +123,7 @@ pub fn handle_client(mut stream: TcpStream, db: SharedDb){
 
                 Ok(Command::Get { key }) => {
 
-                    let db = db.lock().unwrap();
+                    let db = db_arc.lock().unwrap();
 
                     let mut found = false;
 
