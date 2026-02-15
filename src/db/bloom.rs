@@ -48,7 +48,7 @@ impl BloomFilter {
         true
     }
 
-     pub fn build_from_sstable(path: &Path) -> std::io::Result<Self> {
+    pub fn build_from_sstable(path: &Path) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         
