@@ -3,6 +3,7 @@ use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+use crate::db::memtable::Value;
 use crate::protocol::{self, Command};
 use crate::db::SharedDb;
 use std::sync::{Arc};
@@ -63,7 +64,11 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
                     db.wal.log_set(&key, &value).unwrap();
                     db.memtable.set(key, value);
 
+                    drop(db);
+
                     stream.write_all(b"OK\n").unwrap();
+
+                    let mut db = db_arc.write().unwrap();
                     
                     const MEMTABLE_LIMIT: usize = 4;
 
@@ -128,11 +133,18 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
 
                     let db = db_arc.read().unwrap();
 
-                    let mut found = false;
 
                     if let Some(value) = db.memtable.get(&key) {
-                        let resp = format!("VALUE {}\n", value);
-                        stream.write_all(resp.as_bytes()).unwrap();
+                        match value {
+                            Value::Data(v) => {
+                                let resp = format!("VALUE {}\n", v);
+                                stream.write_all(resp.as_bytes()).unwrap();
+                            }
+                            Value::Tombstone => {
+                                stream.write_all(b"NOT_FOUND\n").unwrap();
+                            }
+                        }
+
                         continue;
                     }
 
@@ -143,16 +155,88 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
                         }
                         
                         if let Some(value) = sstable::get(&meta.path, &key) {
-                            let resp = format!("VALUE {}\n", value);
-                            stream.write_all(resp.as_bytes()).unwrap();
-                            found = true;
+                            match value {
+                                Value::Data(v) => {
+                                    let resp = format!("VALUE {}\n", v);
+                                    stream.write_all(resp.as_bytes()).unwrap();
+                                }
+                                Value::Tombstone => {
+                                    stream.write_all(b"NOT_FOUND\n").unwrap();
+                                }
+                            }
                             break;                            
                         }
                     }
-                
-                    if !found {
-                        stream.write_all(b"NOT_FOUND\n").unwrap();
-                    }
+                }
+
+                Ok(Command::Delete { key }) => {
+
+                       let mut db = db_arc.write().unwrap();
+
+                        db.wal.log_delete(&key).unwrap();
+                        db.memtable.delete(key);
+
+                        const MEMTABLE_LIMIT: usize = 4;
+
+                        if db.memtable.len() >= MEMTABLE_LIMIT {
+
+                            let id = db.manifest.allocate_sstable_id();
+                            let meta = sstable::flush(&db.memtable, id).unwrap();
+
+                            db.manifest.add_sstable(meta.path.clone());
+                            db.manifest.persist("MANIFEST").unwrap();
+
+                            db.sstables.push(meta);
+                            db.memtable.clear();
+                        }
+
+                        if db.sstables.len() >= 2 && !db.compaction_running {
+
+                            db.compaction_running = true;
+
+                        let old_tables  = db.sstables.clone();
+                        let old_path: Vec<PathBuf> = old_tables.iter().map(|m| m.path.clone()).collect();
+
+                        let id = db.manifest.allocate_sstable_id();
+
+                        let db_clone = Arc::clone(&db_arc);
+
+                        drop(db);
+
+                        std::thread::spawn(move ||{
+
+                            let new_table = compaction::compact(
+                            old_tables,
+                            id,
+                            )
+                            .unwrap();
+
+                            let mut db = db_clone.write().unwrap();
+
+                            db.sstables.clear();
+                            db.sstables.push(new_table.clone());
+
+                            for path in &old_path{
+                                db.manifest.remove_sstable(path);
+                            }
+                            
+                            db.manifest.add_sstable(new_table.path.clone());
+                            db.manifest.persist("MANIFEST").unwrap();
+
+                            for path in &old_path{
+                                let _ = std::fs::remove_file(path);
+                            }
+
+                            db.compaction_running = false;
+                            
+                        });
+
+                        stream.write_all(b"OK\n").unwrap();
+                        continue;
+
+                        }
+
+                        stream.write_all(b"OK\n").unwrap();
                 }
 
                 Err(e) => {

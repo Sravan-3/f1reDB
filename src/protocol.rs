@@ -4,6 +4,7 @@
 pub enum Command {
     Set { key: String, value: String },
     Get { key: String },
+    Delete { key: String },
 }
 
 pub fn parse_line(line: &str) -> Result<Command, String>{
@@ -36,6 +37,16 @@ pub fn parse_line(line: &str) -> Result<Command, String>{
 
             Ok(Command::Get {
                 key: parts[1].to_string()
+            })
+        }
+        
+        "DELETE" | "DEL" => {
+            if parts.len() != 2 {
+                return Err("DELETE requires key".into());
+            }
+
+            Ok(Command::Delete {
+                key: parts[1].to_string(),
             })
         }
 

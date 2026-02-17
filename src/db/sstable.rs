@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 use crate::db::bloom::BloomFilter;
-use crate::db::memtable::MemTable;
+use crate::db::memtable::{MemTable, Value};
 
 #[derive(Clone)]
 pub struct SSTableMeta{
@@ -24,7 +24,16 @@ pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMet
     let mut bloom = BloomFilter::new(1024, 3);
 
     for (key, value) in memtable.iter() {
-        writeln!(writer, "{} {}", key, value)?;
+
+        match value {
+            Value::Data(v) => {
+                writeln!(writer, "{} {}", key, v)?;
+            },
+            Value::Tombstone => {
+                writeln!(writer, "{} __TOMBSTONE__", key)?;
+            },
+        }
+
         bloom.insert(key);
     }
 
@@ -33,7 +42,7 @@ pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMet
     Ok(SSTableMeta { path, bloom })
 }
 
-pub fn get(path: &PathBuf, key: &str) -> Option<String>{
+pub fn get(path: &PathBuf, key: &str) -> Option<Value>{
 
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file);
@@ -48,10 +57,13 @@ pub fn get(path: &PathBuf, key: &str) -> Option<String>{
             let v = parts.next()?;
 
             if k == key {
-                return Some(v.to_string());
+                if v == "__TOMBSTONE__" {
+                    return Some(Value::Tombstone);
+                } else {
+                    return Some(Value::Data(v.to_string()));
+                }
             }
         }
     }
-    
     None
 }

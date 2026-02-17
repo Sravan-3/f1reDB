@@ -1,8 +1,14 @@
 use std::collections::BTreeMap;
 
+#[derive(Debug, Clone)]
+pub enum Value {
+    Data(String),
+    Tombstone,
+}
+
 #[derive(Debug)]
 pub struct MemTable{
-    map: BTreeMap<String, String>
+    map: BTreeMap<String, Value>,
 }
 
 impl MemTable {
@@ -14,14 +20,18 @@ impl MemTable {
     }
 
     pub fn set(&mut self, key: String, value: String){
-        self.map.insert(key, value);
+        self.map.insert(key, Value::Data(value));
     }
 
-    pub fn get(&self, key: &str) -> Option<String>{
+    pub fn delete(&mut self, key: String){
+        self.map.insert(key, Value::Tombstone);
+    }
+
+    pub fn get(&self, key: &str) -> Option<Value>{
         return self.map.get(key).cloned();
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> { 
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Value)> { 
         self.map.iter()
     }
 
@@ -34,4 +44,3 @@ impl MemTable {
     }
 
 }
-

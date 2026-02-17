@@ -25,6 +25,12 @@ impl Wal {
         Ok(())
     }
 
+    pub fn log_delete(&mut self, key: &str) -> std::io::Result<()> {
+        writeln!(self.file, "DEL {}", key)?;
+        self.file.flush()?;
+        Ok(())
+    }
+
     pub fn replay(path: &str, memtable:&mut MemTable) -> std::io::Result<()>{
 
         if !Path::new(path).exists(){
@@ -39,8 +45,11 @@ impl Wal {
             let line = line?;
             let parts: Vec<&str> = line.split_whitespace().collect();
 
-            if parts.len() == 3 && parts[0] == "SET"{
+            if parts.len() == 3 && parts[0] == "SET" {
                 memtable.set(parts[1].to_string(), parts[2].to_string());
+            }
+            else if parts.len() == 2 && parts[0] == "DEL" {
+                memtable.delete(parts[1].to_string());
             }
         }
 
