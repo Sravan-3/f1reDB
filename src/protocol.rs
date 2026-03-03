@@ -50,7 +50,7 @@ pub fn parse_line(line: &str) -> Result<Command, String>{
             })
         }
 
-         _ => Err("Unknown command".into()),
+        _ => Err("Unknown command".into()),
     }
 
     

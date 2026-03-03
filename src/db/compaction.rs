@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::{File};
 use std::io::{BufReader, BufRead, BufWriter, Write};
+use std::io::Seek;
 
 use crate::db::sstable::{SSTableMeta, path_for_id};
 use crate::db::bloom::BloomFilter;
@@ -39,23 +40,32 @@ pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTab
     let file = File::create(&path)?;
 
     let mut writer = BufWriter::new(file);
-
     let mut bloom = BloomFilter::new(1024, 3);
+    let mut index = Vec::new();
+    let mut count = 0;
+
 
     for (key, value) in &merged {
+    let offset = writer.stream_position()?;
+
+        if count % 100 == 0 {
+            index.push((key.clone(), offset));
+        }
+
         match value {
             Value::Data(v) => {
                 writeln!(writer, "{} {}", key, v)?;
                 bloom.insert(key);
+                count += 1;
             }
             Value::Tombstone => {
-                // Skip tombstones — permanent deletion
+                // skip
             }
         }
     }
 
     writer.flush()?;
-
-    Ok(SSTableMeta { path, bloom })
+    
+    Ok(SSTableMeta { path, bloom, index })
 
 }

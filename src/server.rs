@@ -148,13 +148,15 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
                         continue;
                     }
 
+                    let mut is_tombstone_flag: bool = false;
+
                     for meta in db.sstables.iter().rev() {
 
                         if !meta.bloom.might_contain(&key) {
                             continue;
                         }
                         
-                        if let Some(value) = sstable::get(&meta.path, &key) {
+                        if let Some(value) = sstable::get(meta, &key) {
                             match value {
                                 Value::Data(v) => {
                                     let resp = format!("VALUE {}\n", v);
@@ -162,10 +164,15 @@ pub fn handle_client(mut stream: TcpStream, db_arc: SharedDb){
                                 }
                                 Value::Tombstone => {
                                     stream.write_all(b"NOT_FOUND\n").unwrap();
+                                    is_tombstone_flag = true;
                                 }
                             }
                             break;                            
                         }
+                    }
+                    
+                    if !is_tombstone_flag {
+                        stream.write_all(b"NOT_FOUND\n").unwrap();
                     }
                 }
 

@@ -39,9 +39,11 @@ pub fn open_db() -> SharedDb {
 
     for path in &manifest.sstables {
         let bloom = BloomFilter::build_from_sstable(path).unwrap();
+        let index = sstable::build_sparse_index(path).unwrap();
         sstables.push(SSTableMeta {
             path: path.clone(),
             bloom,
+            index,
         });
     }
 
