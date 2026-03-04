@@ -10,7 +10,9 @@ use crate::db::memtable::{MemTable, Value};
 pub struct SSTableMeta{
     pub path: PathBuf,
     pub bloom: BloomFilter,
-    pub index: Vec<(String, u64)>, // sparse index
+    pub index: Vec<(String, u64)>,
+    pub min_key: String,
+    pub max_key: String,
 }
 
 pub fn path_for_id(id: u64) -> PathBuf {
@@ -29,6 +31,9 @@ pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMet
     let mut index = Vec::new();
     let mut count = 0;
 
+    let mut  min_key: Option<String> = None;
+    let mut max_key: Option<String> = None;
+
     for (key, value) in memtable.iter() {
 
         let offset = writer.stream_position()?;
@@ -36,6 +41,12 @@ pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMet
         if count % 100 == 0 {
             index.push((key.clone(), offset));
         }
+
+        if min_key.is_none(){
+            min_key = Some(key.clone());
+        }
+
+        max_key = Some(key.clone());
 
         match value {
             Value::Data(v) => {
@@ -52,7 +63,7 @@ pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMet
 
     writer.flush()?;
 
-    Ok(SSTableMeta { path, bloom, index })
+    Ok(SSTableMeta { path, bloom, index, min_key: min_key.unwrap(), max_key: max_key.unwrap()})
 }
 
 pub fn get(meta: &SSTableMeta, key: &str) -> Option<Value>{
@@ -60,7 +71,6 @@ pub fn get(meta: &SSTableMeta, key: &str) -> Option<Value>{
     let file = File::open(&meta.path).ok()?;
     let mut reader = BufReader::new(file);
 
-    // binary search in sparse index
     let pos = meta.index.binary_search_by(|(k, _)| k.as_str().cmp(key));
 
     let offset = match pos {
@@ -94,7 +104,7 @@ pub fn get(meta: &SSTableMeta, key: &str) -> Option<Value>{
         }
 
         if k > key {
-            break; // sorted property → stop early
+            break; 
         }
 
         line.clear();

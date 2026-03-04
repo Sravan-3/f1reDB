@@ -16,7 +16,8 @@ use crate::db::{bloom::BloomFilter, manifest::Manifest, sstable::SSTableMeta};
 pub struct Db{
     pub memtable: MemTable,
     pub wal: Wal,
-    pub sstables: Vec<SSTableMeta>,
+    pub level0: Vec<SSTableMeta>,
+    pub level1: Vec<SSTableMeta>,
     pub manifest: Manifest,
     pub compaction_running: bool,
 }
@@ -35,22 +36,30 @@ pub fn open_db() -> SharedDb {
 
     let manifest = Manifest::load("MANIFEST").expect("Failed to load MANIFEST");
 
-    let mut sstables = Vec::new();
+    let level0 = Vec::new();
+    let mut level1 = Vec::new();
 
     for path in &manifest.sstables {
         let bloom = BloomFilter::build_from_sstable(path).unwrap();
         let index = sstable::build_sparse_index(path).unwrap();
-        sstables.push(SSTableMeta {
+
+        let min_key = index.first().map(|(k, _)| k.clone()).unwrap_or_default();
+        let max_key = index.last().map(|(k, _)| k.clone()).unwrap_or_default();
+
+        level1.push(SSTableMeta {
             path: path.clone(),
             bloom,
             index,
+            min_key,
+            max_key,
         });
     }
 
     Arc::new(RwLock::new(Db{
             memtable,
             wal, 
-            sstables,
+            level0,
+            level1,
             manifest,
             compaction_running: false
         }))
