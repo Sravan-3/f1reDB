@@ -169,7 +169,7 @@ cargo run
 Server starts at:
 
 ```
-127.0.0.1:3838
+127.0.0.1:55000
 ```
 
 ---
@@ -177,7 +177,7 @@ Server starts at:
 # 🔗 Connect Using Netcat
 
 ```
-nc 127.0.0.1 3838
+nc 127.0.0.1 55000
 ```
 
 ---
