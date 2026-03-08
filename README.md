@@ -1,66 +1,130 @@
+
+---
+
 # 🔥 f1reDB
 
-**f1reDB** is a simple key-value database written in Rust, inspired by LSM-tree based systems like RocksDB.
+**f1reDB** is a lightweight **LSM-tree based key-value database** written in Rust.
+It is built step-by-step to learn **database internals, storage engines, networking, and concurrency** in Rust.
 
-This project is built step by step to learn systems programming, networking, and database internals in Rust.
+The design is inspired by modern storage engines such as **RocksDB and LevelDB**, but implemented from scratch for educational purposes.
 
-**Current Stage:** In-memory database + Write-Ahead Log (WAL)
+**Current Stage:** Async database server + LSM-tree storage engine.
 
---------------------------------------------------
+---
 
-## ✅ Features (Implemented)
+# ✅ Features
 
-- TCP server using Rust standard library
-- Simple text-based protocol
-- Concurrent client handling
-- In-memory MemTable using `BTreeMap`
-- Write-Ahead Log (WAL) for crash safety
-- Automatic recovery from WAL on restart
+### Networking
 
---------------------------------------------------
+* Async TCP server using **Tokio**
+* Concurrent client handling with **async tasks**
+* Lightweight text protocol
 
-## 🏗 Architecture Overview
+### Storage Engine
+
+* **MemTable** (in-memory write buffer using `BTreeMap`)
+* **Write-Ahead Log (WAL)** for durability
+* **SSTables** for persistent sorted storage
+* **Bloom filters** for fast negative lookups
+* **Sparse index** for efficient disk seeks
+* **Tombstones** for deletes
+* **LSM Levels** (Level0 → Level1)
+* **Background compaction**
+
+### Reliability
+
+* Crash-safe writes via WAL
+* Automatic **WAL replay** on restart
+* Manifest file to track SSTables
+
+---
+
+# 🏗 Architecture Overview
 
 ```
-Client
-  |
- TCP
-  |
-Server
-  |
-  +-- Write-Ahead Log (wal.log)
-  |
-  +-- MemTable (BTreeMap)
+                +-------------+
+Client  ----->  |  TCP Server |
+                +------+------+
+                       |
+                Command Parser
+                       |
+                +------+------+
+                |   Database   |
+                +------+------+
+                       |
+       +---------------+---------------+
+       |                               |
+   Write-Ahead Log                 MemTable
+      (durability)              (in-memory buffer)
+                                       |
+                                Flush threshold
+                                       |
+                                    SSTable
+                                       |
+                         +-------------+-------------+
+                         |                           |
+                       Level 0                    Level 1
+                    (overlapping)              (sorted ranges)
+                         |
+                    Compaction
 ```
 
---------------------------------------------------
+---
 
-## ✍️ Write Path
+# ✍️ Write Path
 
 ```
 SET key value
- → append to WAL
- → write to MemTable
+    ↓
+Append to WAL
+    ↓
+Insert into MemTable
+    ↓
+MemTable threshold reached
+    ↓
+Flush → SSTable
+    ↓
+Add to Level0
+    ↓
+Background compaction (L0 → L1)
 ```
 
---------------------------------------------------
+---
 
-## 📖 Read Path
+# 📖 Read Path
 
 ```
 GET key
- → lookup in MemTable
+   ↓
+MemTable
+   ↓
+Level0 SSTables (newest first)
+   ↓
+Bloom Filter Check
+   ↓
+Sparse Index Seek
+   ↓
+Level1 SSTables
+   ↓
+NOT_FOUND
 ```
 
---------------------------------------------------
+Read optimizations used:
 
-## 🔌 Protocol
+* Bloom filters
+* Range filtering (`min_key`, `max_key`)
+* Sparse index seeking
+
+---
+
+# 🔌 Protocol
 
 ### Commands
 
 ```
 SET <key> <value>\n
 GET <key>\n
+DEL <key>\n
 ```
 
 ### Responses
@@ -72,25 +136,29 @@ NOT_FOUND\n
 ERROR <message>\n
 ```
 
---------------------------------------------------
+---
 
-## 📁 Project Structure
+# 📁 Project Structure
 
 ```
 src/
-├── main.rs          # Program entry point
-├── lib.rs           # Library root
-├── server.rs        # TCP server & client handling
-├── protocol.rs      # Command parsing
+├── main.rs          # Application entry point
+├── server.rs        # Async TCP server (Tokio)
+├── protocol.rs      # Command parser
 └── db/
-    ├── mod.rs       # Database wiring
-    ├── memtable.rs  # In-memory storage
-    └── wal.rs       # Write-Ahead Log
+    ├── mod.rs       # Database initialization
+    ├── memtable.rs  # In-memory table
+    ├── wal.rs       # Write-Ahead Log
+    ├── sstable.rs   # SSTable storage
+    ├── bloom.rs     # Bloom filter implementation
+    ├── compaction.rs# LSM compaction logic
+    ├── manifest.rs  # SSTable tracking
+    └── static_vars.rs
 ```
 
---------------------------------------------------
+---
 
-## ▶️ How to Run
+# ▶️ How to Run
 
 ### Build & Run
 
@@ -98,99 +166,159 @@ src/
 cargo run
 ```
 
-The server starts on:
+Server starts at:
 
 ```
 127.0.0.1:3838
 ```
 
---------------------------------------------------
+---
 
-## 🔗 Connect Using Netcat
+# 🔗 Connect Using Netcat
 
 ```
 nc 127.0.0.1 3838
 ```
 
-### Example Session
+---
+
+# 💬 Example Session
 
 ```
 SET name fire
 OK
+
 GET name
-fire
+VALUE fire
+
+DEL name
+OK
+
+GET name
+NOT_FOUND
 ```
 
---------------------------------------------------
+---
 
-## 💾 Crash Recovery Demo
+# 💾 Crash Recovery Demo
 
-1. Start server
+1. Start the server
 2. Run:
-   ```
-   SET lang rust
-   ```
-3. Stop server (Ctrl+C)
+
+```
+SET lang rust
+```
+
+3. Stop server (`Ctrl+C`)
 4. Restart server
 5. Run:
-   ```
-   GET lang
-   ```
+
+```
+GET lang
+```
 
 Result:
 
 ```
-rust
+VALUE rust
 ```
 
-Data is recovered from the Write-Ahead Log.
+The value is recovered using **WAL replay**.
 
---------------------------------------------------
+---
 
-## 🧰 Tech Stack
+# ⚡ Storage Design
 
-- **Language:** Rust
-- **Networking:** `std::net::TcpListener`
-- **Concurrency:** `Arc<Mutex<T>>`
-- **Storage:**
-  - MemTable: `BTreeMap`
-  - WAL: append-only file
+### MemTable
 
---------------------------------------------------
+```
+BTreeMap<String, Value>
+```
 
-## 🗺 Roadmap
+Keeps keys sorted to simplify SSTable flushing.
 
-Planned next steps:
+### SSTable
 
-- SSTable flush from MemTable
-- Immutable on-disk tables
-- Bloom filters for read optimization
-- Compaction
-- Binary file formats
-- Performance improvements
+On-disk sorted key-value table containing:
 
---------------------------------------------------
+* key-value entries
+* Bloom filter
+* sparse index
+* key range metadata
 
-## 🎯 Motivation
+### Bloom Filter
 
-This project is built as a learning exercise to understand:
+Used to quickly determine if a key **cannot exist** in an SSTable.
 
-- How databases work internally
-- Rust ownership and concurrency
-- Networking at a low level
-- Crash safety and durability
+This avoids unnecessary disk reads.
 
---------------------------------------------------
+### Sparse Index
 
-## ⚠️ Disclaimer
+Stores key → offset mappings every N rows.
 
-f1reDB is NOT production-ready.
+Lookup algorithm:
 
-It is an educational project focused on learning system design and Rust internals.
+```
+Binary search sparse index
+      ↓
+Seek file offset
+      ↓
+Scan small range
+```
 
---------------------------------------------------
+---
 
-## 👤 Author
+# 🧰 Tech Stack
 
-Built by Sravan 🚀  
-Learning Rust and backend systems engineering.
+| Component      | Technology          |
+| -------------- | ------------------- |
+| Language       | Rust                |
+| Networking     | Tokio async runtime |
+| Concurrency    | `Arc<RwLock<Db>>`   |
+| MemTable       | `BTreeMap`          |
+| Disk Storage   | SSTables            |
+| Crash Recovery | Write-Ahead Log     |
+
+---
+
+# 🗺 Roadmap
+
+Planned improvements:
+
+* Block-based SSTables
+* Block cache
+* Multi-level LSM tree (L2–L6)
+* Range queries
+* Async compaction scheduler
+* Manifest recovery improvements
+* Binary protocol
+* Metrics and monitoring
+
+---
+
+# 🎯 Motivation
+
+f1reDB is a learning project focused on understanding:
+
+* LSM-tree storage engines
+* Database architecture
+* Rust concurrency and ownership
+* Async networking
+* Crash recovery and durability
+
+The goal is to **build a small but real database engine from scratch**.
+
+---
+
+# ⚠️ Disclaimer
+
+f1reDB is **not production-ready**.
+
+This project is intended for **educational purposes** to explore database internals and systems programming in Rust.
+
+---
+
+# 👤 Author
+
+Built by **Sravan Gandla** 🚀
+Learning Rust, databases, and backend systems engineering.

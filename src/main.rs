@@ -5,5 +5,5 @@ use f1redb::db;
 async fn main() {
 
     let db = db::open_db();
-    server::start("127.0.0.1:6379", db).await;
+    server::start("127.0.0.1:55000", db).await;
 }
