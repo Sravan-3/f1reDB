@@ -146,7 +146,7 @@ pub async fn handle_client(mut stream: TcpStream, db_arc: SharedDb) {
 
                     let response = {
 
-                        let db = db_arc.read().unwrap();
+                        let mut db = db_arc.write().unwrap();
 
                         if let Some(value) = db.memtable.get(&key) {
 
@@ -163,14 +163,16 @@ pub async fn handle_client(mut stream: TcpStream, db_arc: SharedDb) {
 
                             let mut result = None;
 
-                            for meta in db.level0.iter().rev() {
+                            let level0_tables = db.level0.clone();
+
+                            for meta in level0_tables.iter().rev() {
 
                                 if !meta.bloom.might_contain(&key) {
                                     continue;
                                 }
 
                                 if let Some(value) =
-                                    sstable::get(meta, &key)
+                                    sstable::get(meta, &key, &mut db.block_cache)
                                 {
                                     result = Some(value);
                                     break;
@@ -179,7 +181,9 @@ pub async fn handle_client(mut stream: TcpStream, db_arc: SharedDb) {
 
                             if result.is_none() {
 
-                                for meta in &db.level1 {
+                                let level1_tables = db.level1.clone();
+
+                                for meta in &level1_tables {
 
                                     if key < meta.min_key
                                         || key > meta.max_key
@@ -192,7 +196,7 @@ pub async fn handle_client(mut stream: TcpStream, db_arc: SharedDb) {
                                     }
 
                                     if let Some(value) =
-                                        sstable::get(meta, &key)
+                                        sstable::get(meta, &key, &mut db.block_cache)
                                     {
                                         result = Some(value);
                                         break;

@@ -6,11 +6,13 @@ pub mod bloom;
 pub mod compaction;
 pub mod manifest;
 pub mod static_vars;
+pub mod block_cache;
 
 use std::{sync::{Arc, RwLock}};
 use memtable::MemTable;
 use wal::Wal;
 use crate::db::{bloom::BloomFilter, manifest::Manifest, sstable::SSTableMeta};
+use crate::db::block_cache::BlockCache;
 
 
 pub struct Db{
@@ -20,6 +22,7 @@ pub struct Db{
     pub level1: Vec<SSTableMeta>,
     pub manifest: Manifest,
     pub compaction_running: bool,
+    pub block_cache: BlockCache,
 }
 
 pub type SharedDb = Arc<RwLock<Db>>;
@@ -61,7 +64,8 @@ pub fn open_db() -> SharedDb {
             level0,
             level1,
             manifest,
-            compaction_running: false
+            compaction_running: false,
+            block_cache: BlockCache::new(128)
         }))
 }
 

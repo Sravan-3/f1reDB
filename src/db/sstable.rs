@@ -5,6 +5,7 @@ use std::io::{Seek, SeekFrom};
 
 use crate::db::bloom::BloomFilter;
 use crate::db::memtable::{MemTable, Value};
+use crate::db::block_cache::BlockCache;
 
 #[derive(Clone)]
 pub struct SSTableMeta{
@@ -66,7 +67,7 @@ pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMet
     Ok(SSTableMeta { path, bloom, index, min_key: min_key.unwrap(), max_key: max_key.unwrap()})
 }
 
-pub fn get(meta: &SSTableMeta, key: &str) -> Option<Value>{
+pub fn get(meta: &SSTableMeta, key: &str, cache: &mut BlockCache) -> Option<Value>{
 
     let file = File::open(&meta.path).ok()?;
     let mut reader = BufReader::new(file);
@@ -84,33 +85,61 @@ pub fn get(meta: &SSTableMeta, key: &str) -> Option<Value>{
         }
     };
 
+    let cache_key = (meta.path.clone(), offset);
+
+    if let Some(block) = cache.get(&cache_key) {
+
+    for (k, v) in block {
+
+        if k == key {
+            return Some(v);
+        }
+
+        if k.as_str() > key {
+            break;
+        }
+    }
+
+    return None;
+}
+
     reader.seek(SeekFrom::Start(offset)).ok()?;
 
+    let mut block = Vec::new();
     let mut line = String::new();
 
     while reader.read_line(&mut line).ok()? > 0 {
 
-        let mut parts = line.split_whitespace();
+    let mut parts = line.split_whitespace();
 
-        let k = parts.next()?;
-        let v = parts.next()?;
+    let k = parts.next()?.to_string();
+    let v = parts.next()?;
 
-        if k == key {
-            if v == "__TOMBSTONE__" {
-                return Some(Value::Tombstone);
-            } else {
-                return Some(Value::Data(v.to_string()));
-            }
-        }
+    let value = if v == "__TOMBSTONE__" {
+        Value::Tombstone
+    } else {
+        Value::Data(v.to_string())
+    };
 
-        if k > key {
-            break; 
-        }
+    block.push((k.clone(), value.clone()));
 
-        line.clear();
+    if k == key {
+        cache.insert(cache_key, block);
+        return Some(value);
     }
 
-    None
+    if k.as_str() > key {
+        cache.insert(cache_key, block);
+        return None;
+    }
+
+    line.clear();
+}
+
+cache.insert(cache_key, block);
+None
+
+
 }
 
 pub fn build_sparse_index(path: &PathBuf) -> std::io::Result<Vec<(String, u64)>> {
