@@ -3,12 +3,15 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::io::{Seek, SeekFrom, Read};
 
 #[derive(Clone)]
 pub struct BloomFilter{
     bits:Vec<bool>,
     k: usize,
 }
+
+const FOOTER_SIZE: u64 = 16;
 
 impl BloomFilter {
 
@@ -50,13 +53,40 @@ impl BloomFilter {
     }
 
     pub fn build_from_sstable(path: &Path) -> std::io::Result<Self> {
+
         let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        
+        let mut reader = BufReader::new(file);
+
+        let file_size = reader.get_ref().metadata()?.len();
+
+        reader.seek(SeekFrom::Start(file_size - FOOTER_SIZE))?;
+
+        let mut buf = [0u8; 8];
+
+        reader.read_exact(&mut buf)?;
+        let index_start = u64::from_le_bytes(buf);
+
+        reader.read_exact(&mut buf)?;
+        let _index_size = u64::from_le_bytes(buf);
+
+        reader.seek(SeekFrom::Start(0))?;
+
         let mut bloom = BloomFilter::new(1024, 3);
 
-        for line in reader.lines() {
-            let line = line?;
+        let mut bytes_read = 0;
+        let mut line = String::new();
+
+        while bytes_read < index_start {
+
+            line.clear();
+
+            let read = reader.read_line(&mut line)?;
+            if read == 0 {
+                break;
+            }
+
+            bytes_read += read as u64;
+
             let mut parts = line.split_whitespace();
 
             if let Some(key) = parts.next() {
@@ -66,5 +96,4 @@ impl BloomFilter {
 
         Ok(bloom)
     }
-
 }
