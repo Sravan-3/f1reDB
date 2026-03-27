@@ -7,8 +7,35 @@ use crate::db::bloom::BloomFilter;
 use crate::db::memtable::Value;
 
 const FOOTER_SIZE: u64 = 16;
+const BLOCK_SIZE: usize = 4096;
 
-pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTableMeta> {
+fn overlaps(a: &SSTableMeta, b: &SSTableMeta) -> bool {
+    !(a.max_key < b.min_key || a.min_key > b.max_key)
+}
+
+pub fn pick_overlapping(
+    source: Vec<SSTableMeta>,
+    target: Vec<SSTableMeta>
+) -> (Vec<SSTableMeta>, Vec<SSTableMeta>) {
+
+    let mut selected_target = Vec::new();
+
+    for t in &target {
+        for s in &source {
+            if overlaps(s, t) {
+                selected_target.push(t.clone());
+                break;
+            }
+        }
+    }
+
+    (source, selected_target)
+}
+
+pub fn compact(
+    sstables: Vec<SSTableMeta>,
+    new_id: u64
+) -> std::io::Result<SSTableMeta> {
 
     let mut merged: BTreeMap<String, Value> = BTreeMap::new();
 
@@ -18,7 +45,6 @@ pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTab
         let mut reader = BufReader::new(file);
 
         let file_size = reader.get_ref().metadata()?.len();
-
 
         reader.seek(SeekFrom::Start(file_size - FOOTER_SIZE))?;
 
@@ -68,28 +94,51 @@ pub fn compact(sstables: Vec<SSTableMeta>, new_id: u64) -> std::io::Result<SSTab
         }
     }
 
+    let mut filtered = BTreeMap::new();
+
+    for (k, v) in merged {
+        if let Value::Data(_) = v {
+            filtered.insert(k, v);
+        }
+    }
+
+    if filtered.is_empty() {
+        let path = path_for_id(new_id);
+
+        let file = File::create(&path)?;
+        let mut writer = BufWriter::new(file);
+
+        let index_start = 0u64;
+        let index_size = 0u64;
+
+        writer.write_all(&index_start.to_le_bytes())?;
+        writer.write_all(&index_size.to_le_bytes())?;
+        writer.flush()?;
+
+        return Ok(SSTableMeta {
+            path,
+            bloom: BloomFilter::new(1024, 3),
+            index: Vec::new(),
+            min_key: "".to_string(),
+            max_key: "".to_string(),
+        });
+    }
+
     let path = path_for_id(new_id);
     let file = File::create(&path)?;
-
     let mut writer = BufWriter::new(file);
+
     let mut bloom = BloomFilter::new(1024, 3);
     let mut index = Vec::new();
-
-    let mut min_key: Option<String> = None;
-    let mut max_key: Option<String> = None;
-
-    const BLOCK_SIZE: usize = 4096;
 
     let mut block_buffer: Vec<String> = Vec::new();
     let mut block_start_key: Option<String> = None;
     let mut current_size = 0;
 
-    for (key, value) in &merged {
+    let mut min_key: Option<String> = None;
+    let mut max_key: Option<String> = None;
 
-        // skip tombstones in compaction
-        if let Value::Tombstone = value {
-            continue;
-        }
+    for (key, value) in &filtered {
 
         if block_start_key.is_none() {
             block_start_key = Some(key.clone());
