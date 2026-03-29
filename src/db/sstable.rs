@@ -23,7 +23,7 @@ pub fn path_for_id(id: u64) -> PathBuf {
     PathBuf::from(format!("sstable-{}.db", id))
 }
 
-pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMeta> {
+pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMeta>{
 
     let path = path_for_id(sstable_id);
     let file = File::create(&path)?;
@@ -109,18 +109,18 @@ pub fn flush(memtable: &MemTable, sstable_id: u64) -> std::io::Result<SSTableMet
     })
 }
 
-pub fn get(meta: &SSTableMeta, key: &str, cache: &mut BlockCache) -> Option<Value> {
+pub fn get(
+    meta: &SSTableMeta,
+    key: &str,
+    cache: &mut BlockCache
+) -> (Option<Value>, bool) {
 
     let pos = meta.index.binary_search_by(|(k, _)| k.as_str().cmp(key));
 
     let offset = match pos {
         Ok(i) => meta.index[i].1,
         Err(i) => {
-            if i == 0 {
-                0
-            } else {
-                meta.index[i - 1].1
-            }
+            if i == 0 { 0 } else { meta.index[i - 1].1 }
         }
     };
 
@@ -129,23 +129,27 @@ pub fn get(meta: &SSTableMeta, key: &str, cache: &mut BlockCache) -> Option<Valu
     if let Some(block) = cache.get(&cache_key) {
 
         for (k, v) in block {
-
             if k == key {
-                return Some(v);
+                return (Some(v), true);
             }
-
             if k.as_str() > key {
                 break;
             }
         }
 
-        return None;
+        return (None, true);
     }
 
-    let file = File::open(&meta.path).ok()?;
+    let file = match File::open(&meta.path) {
+        Ok(f) => f,
+        Err(_) => return (None, false),
+    };
+
     let mut reader = BufReader::new(file);
 
-    reader.seek(SeekFrom::Start(offset)).ok()?;
+    if reader.seek(SeekFrom::Start(offset)).is_err() {
+        return (None, false);
+    }
 
     let mut block = Vec::new();
     let mut line = String::new();
@@ -153,7 +157,13 @@ pub fn get(meta: &SSTableMeta, key: &str, cache: &mut BlockCache) -> Option<Valu
 
     while bytes_read < BLOCK_SIZE {
 
-        let read = reader.read_line(&mut line).ok()?;
+        line.clear();
+
+        let read = match reader.read_line(&mut line) {
+            Ok(r) => r,
+            Err(_) => break,
+        };
+
         if read == 0 {
             break;
         }
@@ -162,8 +172,15 @@ pub fn get(meta: &SSTableMeta, key: &str, cache: &mut BlockCache) -> Option<Valu
 
         let mut parts = line.split_whitespace();
 
-        let k = parts.next()?.to_string();
-        let v = parts.next()?;
+        let k = match parts.next() {
+            Some(v) => v.to_string(),
+            None => continue,
+        };
+
+        let v = match parts.next() {
+            Some(v) => v,
+            None => continue,
+        };
 
         let value = if v == "__TOMBSTONE__" {
             Value::Tombstone
@@ -175,19 +192,17 @@ pub fn get(meta: &SSTableMeta, key: &str, cache: &mut BlockCache) -> Option<Valu
 
         if k == key {
             cache.insert(cache_key, block);
-            return Some(value);
+            return (Some(value), false);
         }
 
         if k.as_str() > key {
             cache.insert(cache_key, block);
-            return None;
+            return (None, false);
         }
-
-        line.clear();
     }
 
     cache.insert(cache_key, block);
-    None
+    (None, false)
 }
 
 pub fn build_sparse_index(path: &PathBuf) -> std::io::Result<Vec<(String, u64)>> {

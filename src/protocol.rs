@@ -1,13 +1,11 @@
-// Request/response parsing
-
-#[derive(Debug)]
 pub enum Command {
     Set { key: String, value: String },
     Get { key: String },
     Delete { key: String },
+    Stats,
 }
 
-pub fn parse_line(line: &str) -> Result<Command, String>{
+pub fn parse_line(line: &str) -> Result<Command, String> {
 
     let parts: Vec<&str> = line.trim().split_whitespace().collect();
 
@@ -16,42 +14,37 @@ pub fn parse_line(line: &str) -> Result<Command, String>{
     }
 
     match parts[0].to_uppercase().as_str() {
-        
-        "SET" => {
 
+        "SET" => {
             if parts.len() != 3 {
                 return Err("SET requires key and value".into());
             }
-
-            Ok(Command::Set { 
+            Ok(Command::Set {
                 key: parts[1].to_string(),
-                value: parts[2].to_string()
+                value: parts[2].to_string(),
             })
         }
 
         "GET" => {
-
-            if parts.len() != 2{
-                 return Err("GET requires key".into());
+            if parts.len() != 2 {
+                return Err("GET requires key".into());
             }
-
             Ok(Command::Get {
-                key: parts[1].to_string()
+                key: parts[1].to_string(),
             })
         }
-        
-        "DELETE" | "DEL" => {
+
+        "DEL" | "DELETE" => {
             if parts.len() != 2 {
                 return Err("DELETE requires key".into());
             }
-
             Ok(Command::Delete {
                 key: parts[1].to_string(),
             })
         }
 
+        "STATS" => Ok(Command::Stats),
+
         _ => Err("Unknown command".into()),
     }
-
-    
 }

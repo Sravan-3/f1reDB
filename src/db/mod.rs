@@ -7,9 +7,10 @@ pub mod compaction;
 pub mod manifest;
 pub mod static_vars;
 pub mod block_cache;
+pub mod metrics;
 
 use std::{
-    sync::{Arc, RwLock}
+    sync::{Arc, RwLock, Mutex}
 };
 
 use memtable::MemTable;
@@ -19,16 +20,18 @@ use crate::db::bloom::BloomFilter;
 use crate::db::manifest::Manifest;
 use crate::db::sstable::SSTableMeta;
 use crate::db::block_cache::BlockCache;
+use crate::db::metrics::{Metrics, SharedMetrics};
 
 pub struct Db {
     pub memtable: MemTable,
-    pub wal: Wal,
+    pub wal: Arc<Mutex<Wal>>,
     pub level0: Vec<SSTableMeta>,
     pub level1: Vec<SSTableMeta>,
     pub level2: Vec<SSTableMeta>,
     pub manifest: Manifest,
     pub compaction_running: bool,
     pub block_cache: BlockCache,
+    pub metrics: SharedMetrics,
 }
 
 pub type SharedDb = Arc<RwLock<Db>>;
@@ -43,16 +46,16 @@ pub fn open_db() -> SharedDb {
         .expect("WAL Replay failed");
 
     let wal = Wal::open(wal_path)
-        .expect("Failed to open wal");
+    .expect("Failed to open wal");
 
     let manifest = Manifest::load("MANIFEST")
         .expect("Failed to load MANIFEST");
 
-    let level0 = Vec::new();
+    let mut level0 = Vec::new();
     let mut level1 = Vec::new();
-    let level2 = Vec::new();
+    let mut level2 = Vec::new();
 
-    for path in &manifest.sstables {
+    for path in &manifest.level0 {
 
         let bloom = match BloomFilter::build_from_sstable(path) {
             Ok(b) => b,
@@ -68,17 +71,66 @@ pub fn open_db() -> SharedDb {
             continue;
         }
 
-        let min_key = index.first().unwrap().0.clone();
-        let max_key = index.last().unwrap().0.clone();
+        level0.push(SSTableMeta {
+            path: path.clone(),
+            min_key: index.first().unwrap().0.clone(),
+            max_key: index.last().unwrap().0.clone(),
+            bloom,
+            index,
+        });
+    }
+
+    for path in &manifest.level1 {
+
+        let bloom = match BloomFilter::build_from_sstable(path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        let index = match crate::db::sstable::build_sparse_index(path) {
+            Ok(i) => i,
+            Err(_) => continue,
+        };
+
+        if index.is_empty() {
+            continue;
+        }
 
         level1.push(SSTableMeta {
             path: path.clone(),
+            min_key: index.first().unwrap().0.clone(),
+            max_key: index.last().unwrap().0.clone(),
             bloom,
             index,
-            min_key,
-            max_key,
         });
     }
+
+    for path in &manifest.level2 {
+
+        let bloom = match BloomFilter::build_from_sstable(path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        let index = match crate::db::sstable::build_sparse_index(path) {
+            Ok(i) => i,
+            Err(_) => continue,
+        };
+
+        if index.is_empty() {
+            continue;
+        }
+
+        level2.push(SSTableMeta {
+            path: path.clone(),
+            min_key: index.first().unwrap().0.clone(),
+            max_key: index.last().unwrap().0.clone(),
+            bloom,
+            index,
+        });
+    }
+
+    let metrics = Metrics::new();
 
     Arc::new(RwLock::new(Db {
         memtable,
@@ -89,5 +141,6 @@ pub fn open_db() -> SharedDb {
         manifest,
         compaction_running: false,
         block_cache: BlockCache::new(128),
+        metrics,
     }))
 }
